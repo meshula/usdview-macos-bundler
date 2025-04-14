@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>usdview</string>
+  <key>CFBundleDisplayName</key>
+  <string>usdview</string>
+  <key>CFBundleIdentifier</key>
+  <string>org.openusd.usdview</string>
+  <key>CFBundleVersion</key>
+  <string>1.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleExecutable</key>
+  <string>usdview-launcher</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleIconFile</key>
+  <string>icon</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+
+  <!-- Document types -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>USD File</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>usd</string>
+        <string>usda</string>
+        <string>usdc</string>
+        <string>usdz</string>
+      </array>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>org.openusd.usd</string>
+      </array>
+    </dict>
+  </array>
+
+  <!-- UTI declarations -->
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>org.openusd.usd</string>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>usd</string>
+          <string>usda</string>
+          <string>usdc</string>
+          <string>usdz</string>
+        </array>
+        <key>public.mime-type</key>
+        <string>application/octet-stream</string>
+      </dict>
+      <key>UTTypeDescription</key>
+      <string>Universal Scene Description</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>
