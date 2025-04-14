@@ -1,15 +1,87 @@
-# Design Document: Bundling `usdview` as a macOS App
+# Design Document: USD Viewer Bundler
 
 ## Objective
-Create a macOS `.app` bundle for `usdview` that supports both ARM and x64 architectures. The bundle should be self-contained, with separate runtime environments per architecture, and capable of launching via GUI or CLI.
+Create a Python-based tool to bundle `usdview` as a macOS `.app` with support for both ARM and x64 architectures. The bundle should be self-contained, with separate runtime environments per architecture, and capable of launching via GUI or CLI.
 
-## Requirements
-- macOS `.app` bundle structure
-- Dual-architecture support (ARM64 and x86_64)
-- Bundled USD libraries and plugins
-- Bundled minimal Python environment per architecture
-- Self-contained dynamic libraries with proper `@loader_path` fixups
-- GUI-based file selection fallback when launched without arguments
+## Architecture Overview
+The bundler follows a modular, object-oriented design with clean separation of concerns:
+
+```
+usdview_bundler/
+├── __init__.py
+├── bundler.py         # Main orchestration class
+├── builders/
+│   ├── __init__.py
+│   ├── usd_builder.py    # Handles USD compilation
+│   └── python_env.py     # Manages Python environments
+├── packagers/
+│   ├── __init__.py
+│   ├── app_structure.py  # Creates .app structure
+│   └── dylib_fixer.py    # Handles library dependency pathing
+├── signing/
+│   ├── __init__.py
+│   └── notarizer.py      # Handles code signing and notarization
+└── utils/
+    ├── __init__.py
+    ├── arch.py           # Architecture detection utilities
+    └── plist.py          # Plist manipulation
+```
+
+## Core Components
+
+### Bundler Class
+The central orchestrator that coordinates the build process:
+- Initializes and configures all components
+- Manages the build workflow for each architecture
+- Provides both API and CLI interfaces
+- Handles configuration and logging
+
+### Builders
+Components responsible for building core elements:
+
+#### UsdBuilder
+- Builds USD for a specific architecture
+- Handles platform-specific environmental setup
+- Manages build artifacts and installation
+
+#### PythonEnvironment
+- Creates architecture-specific conda environments
+- Packages environments for redistribution using dynamic conda-pack installation
+- Ensures proper isolation between ARM and x64 Python environments
+
+### Packagers
+Components for packaging and preparing the application:
+
+#### AppStructure
+- Creates the macOS .app bundle directory structure
+- Generates and manages application resources (icons, info.plist)
+- Creates the architecture-aware launcher script
+
+#### DylibFixer
+- Recursively identifies dynamic library dependencies
+- Rewrites library paths using `@loader_path` for proper bundling
+- Ensures runtime environment integrity per architecture
+
+### Signing
+Components for code signing and distribution:
+
+#### Notarizer
+- Handles code signing with Developer ID
+- Submits bundles for Apple notarization
+- Staples notarization tickets to the bundle
+
+### Utilities
+Shared utility components:
+
+#### Architecture
+- Detects system architecture
+- Provides platform-specific configurations
+- Manages Rosetta 2 compatibility checks
+
+#### PlistManager
+- Creates and modifies property list files
+- Generates application metadata
+- Handles file type associations
 
 ## Bundle Layout
 ```
@@ -28,50 +100,65 @@ usdview.app/
     └── Info.plist
 ```
 
-## Build Steps
+## Workflows
 
-### 1. Environment Preparation
-Define build root and output layout, with dedicated directories for ARM and x64 builds.
+### Development & Testing
+1. Configure bundler with build and output directories
+2. Create basic app structure with resources
+3. For each architecture:
+   - Build USD with appropriate configurations
+   - Create and package Python environment
+   - Fix library dependencies
+4. Create launcher script that detects architecture at runtime
+5. Test locally without signing
 
-### 2. Building USD
-Use `build_usd.py` to compile USD twice:
-- Once for ARM64 using a native conda env
-- Once for x86_64 using an x64 conda env under Rosetta
+### Distribution Preparation
+1. Complete development workflow
+2. Sign the app bundle with Developer ID
+3. Create signed ZIP for distribution
+4. (Optional) Submit for notarization
+5. (Optional) Staple notarization ticket
 
-### 3. Minimal Python Environments
-Use `conda-pack` or similar to bundle only necessary Python packages per architecture into:
-- `Resources/ARM/python/`
-- `Resources/x64/python/`
+## Key Technical Challenges & Solutions
 
-### 4. USD Binaries and Plugins
-Copy relevant binaries, shared libraries, and plugins into:
-- `Resources/ARM/usd/`
-- `Resources/x64/usd/`
+### Dynamic Library Dependencies
+**Challenge:** Ensuring all dynamic libraries use relative paths.
 
-### 5. Dynamic Library Fixups
-Use `otool -L` to discover dependencies recursively. Use `install_name_tool` to rewrite paths:
-- Change all absolute paths to use `@loader_path`
-- Ensure internal consistency within each architecture's runtime
+**Solution:** The DylibFixer component recursively:
+1. Identifies each library's dependencies with `otool -L`
+2. Rewrites IDs with `install_name_tool -id`
+3. Updates dependency references with `install_name_tool -change`
+4. Uses `@loader_path` for relative paths
 
-### 6. Launcher Program
-Create a small binary (`usdview-launcher`) that:
-- Detects system architecture via `uname -m` or `arch`
-- Checks if the user passed a file argument
-  - If so, runs the appropriate `python usdview <file>`
-  - If not, pops a file open dialog via Cocoa or AppleScript
+### Cross-Architecture Support
+**Challenge:** Supporting both ARM and x64 architectures in one bundle.
 
-### 7. Plist and Icon
-Create a valid `Info.plist`:
-- `CFBundleExecutable` -> `usdview-launcher`
-- `CFBundleIconFile` -> `icon.icns`
-- `CFBundleIdentifier`, `CFBundleName`, etc.
+**Solution:**
+1. Maintain separate USD and Python environments per architecture
+2. Use a launcher script that detects architecture at runtime
+3. Dynamically select the appropriate environment
 
-Provide a 512x512 `.icns` file for branding.
+### Python Environment Packaging
+**Challenge:** Creating relocatable Python environments.
 
-## Optional Improvements
-- Add version metadata to `Info.plist`
-- Support drag-and-drop onto the app icon
-- Add custom About panel in the app bundle
+**Solution:**
+1. Create architecture-specific conda environments
+2. Dynamically install and use conda-pack at runtime
+3. Package environments as relocatable archives
+4. Ensure proper activation/deactivation in the launcher
 
-## Summary
-This design will produce a single `.app` bundle compatible with both Apple Silicon and Intel Macs. The app will function whether launched interactively or from the CLI, and will maintain total runtime independence with all dylibs and scripts quarantined per architecture.
+### App Bundle Structure
+**Challenge:** Creating a valid macOS app bundle.
+
+**Solution:**
+1. Create standard macOS .app directory structure
+2. Generate proper Info.plist with file associations
+3. Create appropriate icons and resources
+4. Implement architecture-aware launcher
+
+## Future Improvements
+1. Add support for incremental builds
+2. Implement parallel processing for multi-architecture builds
+3. Add a GUI for configuration and monitoring
+4. Expand platform support beyond macOS
+5. Support for USD plugin extensions

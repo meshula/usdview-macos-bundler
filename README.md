@@ -20,13 +20,33 @@ A Python-based tool for creating macOS application bundles for USD View. This to
 
 ## Installation
 
+### System Requirements
+
+Before installation, ensure you have these system dependencies:
+
+- macOS 11.0 or higher
+- Xcode Command Line Tools (`xcode-select --install`)
+- Conda package manager (Miniconda or Anaconda)
+- Administrator privileges (for some operations)
+
+### Package Installation
+
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/usdview-bundler.git
 cd usdview-bundler
 
-# Install the package
+# Install dependencies
+pip install -r requirements.txt
+
+# Install the package in development mode
 pip install -e .
+```
+
+Alternatively, you can install with all dependencies in one command:
+
+```bash
+pip install -e ".[dev]"
 ```
 
 ## Basic Usage
@@ -209,4 +229,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the LICENSE file for details.

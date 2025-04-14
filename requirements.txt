@@ -1,0 +1,9 @@
+# Core dependencies
+pyyaml>=6.0
+# Architecture detection and system utilities
+psutil>=5.9.0
+# Path handling and file operations
+pathlib2>=2.3.7; python_version < '3.6'
+# Logging and output formatting
+rich>=12.0.0
+# Process management
