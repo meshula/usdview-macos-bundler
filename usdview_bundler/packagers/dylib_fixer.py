@@ -7,7 +7,7 @@ import os
 import subprocess
 import logging
 from pathlib import Path
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Optional
 
 
 class DylibFixer:

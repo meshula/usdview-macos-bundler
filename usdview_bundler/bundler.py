@@ -6,15 +6,16 @@ Main class that orchestrates the USD viewer bundling process.
 import os
 import logging
 import argparse
+import shutil
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
-from builders.usd_builder import UsdBuilder
-from builders.python_env import PythonEnvironment
-from packagers.app_structure import AppStructure
-from packagers.dylib_fixer import DylibFixer
-from signing.notarizer import Notarizer
-from utils.arch import Architecture
+from usdview_bundler.builders.usd_builder import UsdBuilder
+from usdview_bundler.builders.python_env import PythonEnvironment
+from usdview_bundler.packagers.app_structure import AppStructure
+from usdview_bundler.packagers.dylib_fixer import DylibFixer
+from usdview_bundler.signing.notarizer import Notarizer
+from usdview_bundler.utils.arch import Architecture
 
 
 class Bundler:
@@ -22,25 +23,31 @@ class Bundler:
     
     def __init__(self, 
                  build_dir: Path,
+                 usd_src_dir: Path,
                  output_dir: Optional[Path] = None,
                  archs: List[str] = ["ARM", "x64"],
                  notarize: bool = False,
-                 app_name: str = "usdview"):
+                 app_name: str = "usdview",
+                 skip_if_exists: bool = True):
         """
         Initialize the bundler.
         
         Args:
             build_dir: Directory for intermediate build files
+            usd_src_dir: Directory containing USD source code
             output_dir: Directory where final app bundle will be placed
             archs: List of architectures to support ("ARM", "x64")
             notarize: Whether to notarize the app bundle
             app_name: Name of the application
+            skip_if_exists: Skip build steps if outputs already exist
         """
         self.build_dir = build_dir
+        self.usd_src_dir = usd_src_dir
         self.output_dir = output_dir or Path.cwd()
         self.archs = archs
         self.notarize = notarize
         self.app_name = app_name
+        self.skip_if_exists = skip_if_exists
         
         # Setup app bundle paths
         self.app_bundle = self.output_dir / f"{app_name}.app"
@@ -105,13 +112,15 @@ class Bundler:
         usd_builder = UsdBuilder(
             arch=arch,
             build_dir=arch_build_dir,
-            output_dir=arch_resources_dir / "usd"
+            output_dir=arch_resources_dir / "usd",
+            usd_src_dir=self.usd_src_dir
         )
         
         python_env = PythonEnvironment(
             arch=arch,
             output_dir=arch_resources_dir / "python",
-            env_name=f"usd_env_{arch}"
+            env_name=f"usd_env_{arch}",
+            skip_if_exists=self.skip_if_exists
         )
         
         dylib_fixer = DylibFixer(
@@ -137,6 +146,8 @@ def main():
     
     parser.add_argument("--build-dir", required=True, type=Path,
                         help="Directory for intermediate build files")
+    parser.add_argument("--usd-src-dir", required=True, type=Path,
+                        help="Directory containing USD source code")
     parser.add_argument("--output-dir", type=Path, default=None,
                         help="Directory where the final app bundle will be placed")
     parser.add_argument("--archs", nargs="+", default=["ARM", "x64"],
@@ -145,15 +156,19 @@ def main():
                         help="Notarize the app bundle")
     parser.add_argument("--app-name", default="usdview",
                         help="Name of the application (default: usdview)")
+    parser.add_argument("--force-rebuild", action="store_true",
+                        help="Force rebuild even if previously built")
     
     args = parser.parse_args()
     
     bundler = Bundler(
         build_dir=args.build_dir,
+        usd_src_dir=args.usd_src_dir,
         output_dir=args.output_dir,
         archs=args.archs,
         notarize=args.notarize,
-        app_name=args.app_name
+        app_name=args.app_name,
+        skip_if_exists=not args.force_rebuild
     )
     
     bundler.configure()

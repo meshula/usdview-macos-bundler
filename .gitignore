@@ -2,5 +2,10 @@
 __pycache__/
 *.py[cod]
 
+# Program output
+usdview-dev.app/
+usdview_bundler.egg-info/
+build/
+
 # General
 .DS_Store

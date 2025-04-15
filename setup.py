@@ -24,10 +24,14 @@ setup(
             "isort>=5.10.0",
             "mypy>=0.950",
         ],
+        "runtime": [
+            "PyOpenGL>=3.1.0",
+            "PySide6>=6.0.0",
+        ]
     },
     entry_points={
         "console_scripts": [
-            "usdview-bundler=bundler:main",
+            "usdview-bundler=usdview_bundler.bundler:main",
         ],
     },
     classifiers=[

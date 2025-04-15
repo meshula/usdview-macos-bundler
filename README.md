@@ -36,6 +36,10 @@ Before installation, ensure you have these system dependencies:
 git clone https://github.com/yourusername/usdview-bundler.git
 cd usdview-bundler
 
+# Create and activate a conda environment
+conda create --name usdview_bundler python=3.11
+conda activate usdview_bundler
+
 # Install dependencies
 pip install -r requirements.txt
 
@@ -46,7 +50,11 @@ pip install -e .
 Alternatively, you can install with all dependencies in one command:
 
 ```bash
+# For development
 pip install -e ".[dev]"
+
+# For runtime dependencies only
+pip install -e ".[runtime]"
 ```
 
 ## Basic Usage
@@ -55,11 +63,11 @@ pip install -e ".[dev]"
 
 ```bash
 # Basic build
-usdview-bundler --build-dir ./build
+usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD
 
 # Build with notarization
 APPLE_ID="your.email@example.com" APPLE_PASSWORD="app-specific-password" \
-usdview-bundler --build-dir ./build --notarize
+usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD --notarize
 ```
 
 ### Python API
@@ -71,6 +79,7 @@ from usdview_bundler.bundler import Bundler
 # Create and configure the bundler
 bundler = Bundler(
     build_dir=Path("./build"),
+    usd_src_dir=Path("/path/to/USD"),
     output_dir=Path("./dist"),
     archs=["ARM", "x64"],
     notarize=False,
@@ -90,7 +99,7 @@ For rapid development and testing, you can build a simple unsigned bundle:
 
 ```bash
 # Create a basic build for local testing
-usdview-bundler --build-dir ./build --app-name "usdview-dev"
+usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD --app-name "usdview-dev"
 ```
 
 This produces an unsigned app bundle that works on your local machine. It's perfect for testing changes quickly without the overhead of signing and notarization.
@@ -104,7 +113,7 @@ When you need to share the app with colleagues but don't need App Store distribu
 export APPLE_TEAM_ID="YOUR_TEAM_ID"
 
 # Build with signing
-usdview-bundler --build-dir ./build --app-name "usdview-shared" --sign
+usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD --app-name "usdview-shared" --sign
 ```
 
 This creates an app signed with your Developer ID, which allows other users to open the app without security warnings (after right-click opening it once).
@@ -117,6 +126,7 @@ from usdview_bundler.bundler import Bundler
 
 bundler = Bundler(
     build_dir=Path("./build"),
+    usd_src_dir=Path("/path/to/USD"),
     output_dir=Path("./dist"),
     archs=["ARM", "x64"],
     app_name="usdview-team"
@@ -141,7 +151,7 @@ export APPLE_PASSWORD="app-specific-password"
 export APPLE_TEAM_ID="YOUR_TEAM_ID"
 
 # Build, sign, and notarize
-usdview-bundler --build-dir ./build --notarize
+usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD --notarize
 ```
 
 This creates a fully signed and notarized app bundle that can be distributed to users. It involves:
@@ -157,11 +167,13 @@ Note: You need an App-Specific Password for your Apple ID, which you can generat
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--build-dir` | Directory for intermediate build files | (required) |
+| `--usd-src-dir` | Directory containing USD source code | (required) |
 | `--output-dir` | Directory for the final app bundle | Current directory |
 | `--archs` | Architectures to support | `["ARM", "x64"]` |
 | `--app-name` | Name of the application | `"usdview"` |
 | `-n, --notarize` | Enable notarization | `False` |
 | `--sign` | Enable signing without notarization | `False` |
+| `--force-rebuild` | Force rebuild even if output exists | `False` |
 
 ## Environment Variables
 

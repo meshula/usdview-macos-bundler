@@ -87,7 +87,6 @@ for ARCH in "${ARCHS[@]}"; do
 
     echo "Building USD for $ARCH..."
     python build_usd.py "$ARCH_BUILD_DIR" \
-        --no-imaging \
         --python --usdview
 
     # Copy build artifacts
