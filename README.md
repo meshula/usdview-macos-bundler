@@ -1,4 +1,27 @@
-# USD View Bundler
+### Advanced Features
+
+#### Detailed Logging
+
+USD View Bundler includes a comprehensive logging system that provides:
+
+- Console output for monitoring build progress
+- Detailed log files with complete process information
+- Structured summary reports that aggregate similar issues
+- Categorized error and warning tracking
+
+Log files are stored in the specified `--log-dir` directory (or `build-dir/logs` by default):
+
+- `usdview_TIMESTAMP.log`: Complete detailed log
+- `usdview_TIMESTAMP_summary.txt`: Structured summary of issues by category
+
+This is particularly useful when dealing with hundreds of libraries and their dependencies, as it makes troubleshooting much more manageable by grouping similar issues together.
+
+Example:
+
+```bash
+# Enable detailed logging
+usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD --log-dir ./logs --verbose
+```# USD View Bundler
 
 A Python-based tool for creating macOS application bundles for USD View. This tool handles the complex process of bundling the USD View application with its dependencies for both ARM (Apple Silicon) and x64 (Intel) architectures.
 
@@ -65,9 +88,15 @@ pip install -e ".[runtime]"
 # Basic build
 usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD
 
+# Build with signing (ad-hoc)
+usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD --sign
+
+# Build with signing (developer identity)
+usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD --sign --sign-identity "Developer ID Application: Your Name (TEAM_ID)"
+
 # Build with notarization
 APPLE_ID="your.email@example.com" APPLE_PASSWORD="app-specific-password" \
-usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD --notarize
+usdview-bundler --build-dir ./build --usd-src-dir /path/to/USD --notarize --sign-identity "Developer ID Application: Your Name (TEAM_ID)"
 ```
 
 ### Python API
@@ -173,7 +202,10 @@ Note: You need an App-Specific Password for your Apple ID, which you can generat
 | `--app-name` | Name of the application | `"usdview"` |
 | `-n, --notarize` | Enable notarization | `False` |
 | `--sign` | Enable signing without notarization | `False` |
+| `--sign-identity` | Developer ID for signing | `None` (ad-hoc) |
 | `--force-rebuild` | Force rebuild even if output exists | `False` |
+| `--log-dir` | Directory for log files | `build-dir/logs` |
+| `--verbose` | Enable verbose logging output | `False` |
 
 ## Environment Variables
 

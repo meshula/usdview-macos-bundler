@@ -9,6 +9,8 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Set, Optional
 
+from usdview_bundler.utils import log_manager
+
 
 class DylibFixer:
     """Fixes dynamic library paths in macOS bundles."""
@@ -23,6 +25,8 @@ class DylibFixer:
         self.base_dir = base_dir
         self.logger = logging.getLogger("DylibFixer")
         self.processed_libs: Set[Path] = set()
+        # Get log manager for issue tracking if initialized
+        self.log_manager = log_manager.get_manager()
     
     def fix_libraries(self) -> None:
         """Find and fix all dynamic libraries in the base directory."""
@@ -30,11 +34,34 @@ class DylibFixer:
         
         # Find all dynamic libraries
         dylibs = list(self.base_dir.glob("**/*.dylib"))
-        self.logger.info(f"Found {len(dylibs)} dynamic libraries to process")
+        so_files = list(self.base_dir.glob("**/*.so"))
+        all_libs = dylibs + so_files
         
-        # Process each library
-        for dylib in dylibs:
-            self._process_library(dylib)
+        self.logger.info(f"Found {len(all_libs)} dynamic libraries to process")
+        
+        # Process each library, with error handling
+        success_count = 0
+        warning_count = 0
+        error_count = 0
+        
+        for lib_path in all_libs:
+            try:
+                self._process_library(lib_path)
+                success_count += 1
+                if self.log_manager:
+                    self.log_manager.register_success(str(lib_path))
+            except Exception as e:
+                self.logger.error(f"Failed to process library {lib_path}: {e}")
+                error_count += 1
+                if self.log_manager:
+                    self.log_manager.register_error("unknown_error", str(lib_path), f"Failed to process: {e}")
+        
+        self.logger.info(f"Library processing complete. Successful: {success_count}, "
+                         f"Warnings: {warning_count}, Errors: {error_count}")
+        
+        # Write summary if log manager is available
+        if self.log_manager:
+            self.log_manager.write_summary()
     
     def _process_library(self, lib_path: Path) -> None:
         """
@@ -49,23 +76,46 @@ class DylibFixer:
         self.logger.debug(f"Processing library: {lib_path}")
         self.processed_libs.add(lib_path)
         
-        # Fix the library ID
-        self._fix_library_id(lib_path)
+        # Fix the library ID - continue even if this fails
+        try:
+            self._fix_library_id(lib_path)
+        except Exception as e:
+            self.logger.warning(f"Failed to fix ID for {lib_path.name}, continuing: {e}")
+            if self.log_manager:
+                self.log_manager.register_warning("id_not_processed", str(lib_path), 
+                                                f"Failed to fix library ID: {e}")
         
-        # Get and fix dependencies
-        deps = self._get_dependencies(lib_path)
-        for dep in deps:
-            if self._is_system_lib(dep):
-                continue
-                
-            # If dependency is within our bundle, fix it
-            dep_path = self._find_dependency_in_bundle(dep)
-            if dep_path:
-                # Process this dependency first
-                self._process_library(dep_path)
-                
-                # Now update the reference in the current library
-                self._fix_dependency_reference(lib_path, dep, dep_path)
+        # Try to get and fix dependencies
+        try:
+            deps = self._get_dependencies(lib_path)
+            for dep in deps:
+                if self._is_system_lib(dep):
+                    continue
+                    
+                # If dependency is within our bundle, fix it
+                dep_path = self._find_dependency_in_bundle(dep)
+                if dep_path:
+                    # Process this dependency first
+                    self._process_library(dep_path)
+                    
+                    # Now update the reference in the current library
+                    try:
+                        self._fix_dependency_reference(lib_path, dep, dep_path)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to fix dependency reference in {lib_path.name}: {e}")
+                        if self.log_manager:
+                            self.log_manager.register_warning("reference_update_failed", str(lib_path), 
+                                                            f"Failed to update reference {dep}: {e}")
+                else:
+                    self.logger.warning(f"Dependency {dep} not found in bundle for {lib_path.name}")
+                    if self.log_manager:
+                        self.log_manager.register_warning("dependency_not_found", str(lib_path), 
+                                                        f"Dependency not found: {dep}")
+        except Exception as e:
+            self.logger.warning(f"Failed to process dependencies for {lib_path.name}: {e}")
+            if self.log_manager:
+                self.log_manager.register_warning("unknown_error", str(lib_path), 
+                                                f"Failed to process dependencies: {e}")
     
     def _fix_library_id(self, lib_path: Path) -> None:
         """
@@ -78,16 +128,24 @@ class DylibFixer:
         new_id = f"@loader_path/{lib_name}"
         
         try:
-            subprocess.run([
+            result = subprocess.run([
                 "install_name_tool",
                 "-id", new_id,
                 str(lib_path)
-            ], check=True, capture_output=True)
+            ], capture_output=True, text=True, check=False)
             
-            self.logger.debug(f"Fixed ID for {lib_path.name} -> {new_id}")
-            
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to fix library ID for {lib_path}: {e.stderr.decode()}")
+            if result.returncode != 0:
+                error_msg = f"Failed to fix library ID: {result.stderr}"
+                self.logger.warning(f"{lib_path.name}: {error_msg}")
+                if self.log_manager:
+                    self.log_manager.register_warning("id_not_processed", str(lib_path), error_msg)
+            else:
+                self.logger.debug(f"Fixed ID for {lib_path.name} -> {new_id}")
+        except Exception as e:
+            error_msg = f"Exception when fixing library ID: {e}"
+            self.logger.error(f"{lib_path.name}: {error_msg}")
+            if self.log_manager:
+                self.log_manager.register_error("id_not_processed", str(lib_path), error_msg)
             raise
     
     def _get_dependencies(self, lib_path: Path) -> List[str]:
@@ -118,6 +176,9 @@ class DylibFixer:
             
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Failed to get dependencies for {lib_path}: {e.stderr}")
+            if self.log_manager:
+                self.log_manager.register_error("unknown_error", str(lib_path), 
+                                            f"Failed to get dependencies: {e.stderr}")
             raise
     
     def _is_system_lib(self, lib_path: str) -> bool:
@@ -176,14 +237,23 @@ class DylibFixer:
             new_ref = f"@loader_path/{rel_path}/{dep_path.name}"
         
         try:
-            subprocess.run([
+            result = subprocess.run([
                 "install_name_tool",
                 "-change", old_ref, new_ref,
                 str(lib_path)
-            ], check=True, capture_output=True)
+            ], capture_output=True, text=True, check=False)
             
-            self.logger.debug(f"Fixed dependency in {lib_path.name}: {old_ref} -> {new_ref}")
-            
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to fix dependency reference in {lib_path}: {e.stderr.decode()}")
+            if result.returncode != 0:
+                error_msg = f"Failed to fix dependency reference: {result.stderr}"
+                self.logger.warning(f"{lib_path.name}: {error_msg}")
+                if self.log_manager:
+                    self.log_manager.register_warning("reference_update_failed", str(lib_path), 
+                                                    f"Failed to update reference from {old_ref} to {new_ref}: {result.stderr}")
+            else:
+                self.logger.debug(f"Fixed dependency in {lib_path.name}: {old_ref} -> {new_ref}")
+        except Exception as e:
+            error_msg = f"Exception when fixing dependency reference: {e}"
+            self.logger.error(f"{lib_path.name}: {error_msg}")
+            if self.log_manager:
+                self.log_manager.register_error("reference_update_failed", str(lib_path), error_msg)
             raise
