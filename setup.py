@@ -10,7 +10,7 @@ setup(
     version="0.1.0",
     description="A Python package for bundling usdview as a macOS application",
     author="Your Name",
-    author_email="your.email@example.com",
+    author_email="nporcino@pixar.com",
     packages=find_packages(),
     install_requires=[
         "pyyaml>=6.0",

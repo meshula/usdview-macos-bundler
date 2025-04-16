@@ -7,6 +7,7 @@ import os
 import logging
 import argparse
 import shutil
+import subprocess
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
@@ -185,41 +186,56 @@ class Bundler:
         self.app_structure.copy_resources()
         self.app_structure.create_launcher_script(self.archs)
         
-        # Sign the app bundle if requested
-        if self.sign:
-            self.logger.info("Signing app bundle...")
+        # ALWAYS remove signatures and perform basic ad-hoc signing for compatibility
+        # This happens even without the --sign flag
+        self.logger.info("Processing code signatures...")
+
+        # First remove any existing signatures that might be invalid
+        self.logger.info("Removing existing signatures...")
+        try:
+            # Find and remove signatures from .so files
+            subprocess.run(
+                f"find '{self.app_bundle}' -type f -name '*.so' -exec codesign --remove-signature {{}} \\;",
+                shell=True, check=False
+            )
             
-            # First remove any existing signatures that might be invalid
-            self.logger.info("Removing existing signatures...")
-            try:
-                # Find and remove signatures from .so files
-                subprocess.run(
-                    f"find '{self.app_bundle}' -type f -name '*.so' -exec codesign --remove-signature {{}} \\;",
-                    shell=True, check=False
-                )
-                
-                # Find and remove signatures from .dylib files
-                subprocess.run(
-                    f"find '{self.app_bundle}' -type f -name '*.dylib' -exec codesign --remove-signature {{}} \\;",
-                    shell=True, check=False
-                )
-                
-                # Find and remove signatures from executable files in bin directories
-                subprocess.run(
-                    f"find '{self.app_bundle}' -type f -path '*/bin/*' -perm +111 -exec codesign --remove-signature {{}} \\;",
-                    shell=True, check=False
-                )
-            except Exception as e:
-                self.logger.warning(f"Error removing signatures: {e}")
+            # Find and remove signatures from .dylib files
+            subprocess.run(
+                f"find '{self.app_bundle}' -type f -name '*.dylib' -exec codesign --remove-signature {{}} \\;",
+                shell=True, check=False
+            )
             
-            # Then sign the whole bundle
+            # Find and remove signatures from executable files in bin directories
+            subprocess.run(
+                f"find '{self.app_bundle}' -type f -path '*/bin/*' -perm +111 -exec codesign --remove-signature {{}} \\;",
+                shell=True, check=False
+            )
+        except Exception as e:
+            self.logger.warning(f"Error removing signatures: {e}")
+
+        # Perform basic ad-hoc signing regardless of sign flag
+        try:
+            # Always do a basic ad-hoc sign to make executables work
+            sign_args = ["codesign", "--force", "--deep", "--sign", "-", "--options", "runtime", str(self.app_bundle)]
+            self.logger.info("Performing basic ad-hoc signing for compatibility")
+            result = subprocess.run(sign_args, check=False, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                self.logger.warning(f"Basic signing returned non-zero exit code: {result.returncode}")
+                self.logger.warning(f"Signing stderr: {result.stderr}")
+            else:
+                self.logger.info("Basic signing completed successfully")
+        except Exception as e:
+            self.logger.error(f"Error during basic code signing: {e}")
+        
+        # If explicit signing was requested with an identity, perform that too
+        if self.sign and self.sign_identity and self.sign_identity != "-":
+            # Then sign with the specified identity if requested
             try:
-                # Determine signing identity
-                sign_identity = self.sign_identity if self.sign_identity else "-"
                 sign_args = ["codesign", "--force", "--deep"]
                 
                 # Add signing identity
-                sign_args.extend(["--sign", sign_identity])
+                sign_args.extend(["--sign", self.sign_identity])
                 
                 # Add option to disable hardened runtime
                 sign_args.extend(["--options", "runtime"])
@@ -228,7 +244,7 @@ class Bundler:
                 sign_args.append(str(self.app_bundle))
                 
                 # Execute the codesign command
-                self.logger.info(f"Signing with identity: {sign_identity}")
+                self.logger.info(f"Signing with identity: {self.sign_identity}")
                 result = subprocess.run(sign_args, check=False, capture_output=True, text=True)
                 
                 if result.returncode != 0:
@@ -237,7 +253,7 @@ class Bundler:
                 else:
                     self.logger.info("Signing completed successfully")
             except Exception as e:
-                self.logger.error(f"Error during code signing: {e}")
+                self.logger.error(f"Error during code signing with identity: {e}")
         
         # Notarize if requested
         if self.notarize:
