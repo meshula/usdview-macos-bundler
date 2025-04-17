@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 
 # Program output
-usdview-dev.app/
+*.app/
 usdview_bundler.egg-info/
 build/
 

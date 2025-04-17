@@ -8,6 +8,7 @@ import logging
 import argparse
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
@@ -32,7 +33,8 @@ class Bundler:
                  sign_identity: Optional[str] = None,
                  app_name: str = "usdview",
                  skip_if_exists: bool = True,
-                 log_dir: Optional[Path] = None):
+                 log_dir: Optional[Path] = None,
+                 use_conda: bool = False):
         """
         Initialize the bundler.
         
@@ -47,6 +49,7 @@ class Bundler:
             app_name: Name of the application
             skip_if_exists: Skip build steps if outputs already exist
             log_dir: Directory for log files
+            use_conda: Whether to use conda to create isolated Python environments
         """
         self.build_dir = build_dir
         self.usd_src_dir = usd_src_dir
@@ -57,6 +60,7 @@ class Bundler:
         self.sign_identity = sign_identity
         self.app_name = app_name
         self.skip_if_exists = skip_if_exists
+        self.use_conda = use_conda
         
         # Setup logging
         from usdview_bundler.utils import log_manager
@@ -75,6 +79,53 @@ class Bundler:
         self.build_dir.mkdir(parents=True, exist_ok=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
     
+    def _build_for_arch(self, arch: str) -> Path:
+        """
+        Build for a specific architecture.
+        
+        Args:
+            arch: Architecture to build for
+            
+        Returns:
+            Path to the staging directory for this architecture
+        """
+        self.logger.info(f"Building for {arch} architecture")
+        
+        # Configure arch-specific paths
+        arch_build_dir = self.build_dir / f"USD_{arch}"
+        arch_dir = self.build_dir / "staging" / arch
+        arch_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize arch-specific components
+        usd_builder = UsdBuilder(
+            arch=arch,
+            build_dir=arch_build_dir,
+            output_dir=arch_dir / "usd",
+            usd_src_dir=self.usd_src_dir
+        )
+        
+        # Build USD
+        usd_builder.build()
+        
+        # Handle Python environment if using conda
+        if self.use_conda:
+            self.logger.info(f"Creating conda environment for {arch}")
+            python_env = PythonEnvironment(
+                arch=arch,
+                output_dir=arch_dir / "python",
+                env_name=f"usd_env_{arch}",
+                skip_if_exists=self.skip_if_exists
+            )
+            
+            python_env.create()
+            python_env.package()
+        else:
+            self.logger.info(f"Using system Python for {arch}")
+            # No Python environment to create or package
+        
+        # Return the staging directory for this architecture
+        return arch_dir
+
     def build(self) -> None:
         """Build the app bundle."""
         self.logger.info(f"Building {self.app_name} for archs: {', '.join(self.archs)}")
@@ -86,38 +137,10 @@ class Bundler:
         # Process each architecture in the staging area
         arch_dirs = {}
         for arch in self.archs:
-            self.logger.info(f"Building for {arch} architecture")
-            arch_dir = staging_dir / arch
-            arch_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Configure arch-specific paths
-            arch_build_dir = self.build_dir / f"USD_{arch}"
-            
-            # Initialize arch-specific components
-            usd_builder = UsdBuilder(
-                arch=arch,
-                build_dir=arch_build_dir,
-                output_dir=arch_dir / "usd",
-                usd_src_dir=self.usd_src_dir
-            )
-            
-            python_env = PythonEnvironment(
-                arch=arch,
-                output_dir=arch_dir / "python",
-                env_name=f"usd_env_{arch}",
-                skip_if_exists=self.skip_if_exists
-            )
-            
-            # Build components
-            usd_builder.build()
-            python_env.create()
-            python_env.package()
-            
-            # Store directory for later
+            arch_dir = self._build_for_arch(arch)
             arch_dirs[arch] = arch_dir
-            
             self.logger.info(f"Completed build for {arch}")
-            
+
         # -------- Final assembly: create app bundle and populate it all at once --------
         
         # First, check if an existing bundle needs to be removed
@@ -190,34 +213,69 @@ class Bundler:
         # This happens even without the --sign flag
         self.logger.info("Processing code signatures...")
 
-        # First remove any existing signatures that might be invalid
-        self.logger.info("Removing existing signatures...")
+        # First remove ANY existing signatures that might be invalid
+        self.logger.info("Removing ALL existing signatures...")
         try:
-            # Find and remove signatures from .so files
+            # Ensure all files are writable
+            self.logger.info("Ensuring all files are writable...")
             subprocess.run(
-                f"find '{self.app_bundle}' -type f -name '*.so' -exec codesign --remove-signature {{}} \\;",
+                f"chmod -R u+w '{self.app_bundle}'",
                 shell=True, check=False
             )
             
-            # Find and remove signatures from .dylib files
+            # Use xattr to strip any code signature extended attributes
+            self.logger.info("Removing code signature extended attributes...")
             subprocess.run(
-                f"find '{self.app_bundle}' -type f -name '*.dylib' -exec codesign --remove-signature {{}} \\;",
+                f"xattr -cr '{self.app_bundle}'",
                 shell=True, check=False
             )
             
-            # Find and remove signatures from executable files in bin directories
+            # Find and remove signatures from ALL Mach-O files (executables and libraries)
+            self.logger.info("Removing signatures from all Mach-O files...")
+            # This is more thorough than just looking for specific extensions
             subprocess.run(
-                f"find '{self.app_bundle}' -type f -path '*/bin/*' -perm +111 -exec codesign --remove-signature {{}} \\;",
+                f"find '{self.app_bundle}' -type f -exec codesign --remove-signature {{}} \\; 2>/dev/null || true",
                 shell=True, check=False
             )
         except Exception as e:
             self.logger.warning(f"Error removing signatures: {e}")
-
+            
+        # Sleep briefly to ensure file operations are complete
+        time.sleep(1)
+        
         # Perform basic ad-hoc signing regardless of sign flag
         try:
-            # Always do a basic ad-hoc sign to make executables work
+            # Sign all executable files individually
+            self.logger.info("Signing all executable files individually...")
+            subprocess.run(
+                f"find '{self.app_bundle}' -type f -path '*/bin/*' -perm +111 -exec codesign --force --sign - --options runtime {{}} \\;",
+                shell=True, check=False
+            )
+            
+            # Sign all .so files individually
+            self.logger.info("Signing all .so files individually...")
+            subprocess.run(
+                f"find '{self.app_bundle}' -type f -name '*.so' -exec codesign --force --sign - --options runtime {{}} \\;",
+                shell=True, check=False
+            )
+            
+            # Sign all .dylib files individually
+            self.logger.info("Signing all .dylib files individually...")
+            subprocess.run(
+                f"find '{self.app_bundle}' -type f -name '*.dylib' -exec codesign --force --sign - --options runtime {{}} \\;",
+                shell=True, check=False
+            )
+            
+            # Sign all Python bytecode
+            self.logger.info("Signing all Python bytecode files...")
+            subprocess.run(
+                f"find '{self.app_bundle}' -type f -name '*.pyc' -exec codesign --force --sign - --options runtime {{}} \\;",
+                shell=True, check=False
+            )
+            
+            # Always do a basic ad-hoc sign for the entire bundle
             sign_args = ["codesign", "--force", "--deep", "--sign", "-", "--options", "runtime", str(self.app_bundle)]
-            self.logger.info("Performing basic ad-hoc signing for compatibility")
+            self.logger.info("Performing basic ad-hoc signing for the entire bundle")
             result = subprocess.run(sign_args, check=False, capture_output=True, text=True)
             
             if result.returncode != 0:
@@ -225,6 +283,21 @@ class Bundler:
                 self.logger.warning(f"Signing stderr: {result.stderr}")
             else:
                 self.logger.info("Basic signing completed successfully")
+                
+            # Verify a few key binaries to confirm signing worked
+            self.logger.info("Verifying signatures on key binaries...")
+            for binary_path in [
+                self.app_bundle / "Contents" / "MacOS" / "usdview-launcher",
+                self.app_bundle / "Contents" / "Resources" / "ARM" / "python" / "bin" / "python3",
+                self.app_bundle / "Contents" / "Resources" / "ARM" / "usd" / "bin" / "usdview"
+            ]:
+                if binary_path.exists():
+                    result = subprocess.run(
+                        ["codesign", "-vv", "-d", str(binary_path)],
+                        capture_output=True, text=True, check=False
+                    )
+                    self.logger.info(f"Signature status for {binary_path}: {result.stdout.strip() or 'No output'} {result.stderr.strip() or ''}")
+                
         except Exception as e:
             self.logger.error(f"Error during basic code signing: {e}")
         
@@ -293,6 +366,8 @@ def main():
                         help="Directory for log files (defaults to build-dir/logs)")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose logging")
+    parser.add_argument("--use-conda", action="store_true",
+                        help="Use conda to create isolated Python environments (default: use system Python)")
     
     args = parser.parse_args()
     
@@ -310,7 +385,8 @@ def main():
         sign_identity=args.sign_identity,
         app_name=args.app_name,
         skip_if_exists=not args.force_rebuild,
-        log_dir=args.log_dir
+        log_dir=args.log_dir,
+        use_conda=args.use_conda
     )
     
     bundler.configure()
